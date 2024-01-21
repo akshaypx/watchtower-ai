@@ -14,7 +14,6 @@ import {
 import React, { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { toast } from "sonner";
-import { title } from "process";
 import { PuffLoader } from "react-spinners";
 import {
   Popover,
@@ -239,6 +238,18 @@ const HomePage = (props: Props) => {
   //handler functions
   function userPromptScreenshot() {
     //take picture
+    if (!webcamRef.current) {
+      toast("Camera not found. Please refresh!");
+    } else {
+      const imgSrc = webcamRef.current.getScreenshot();
+      const blob = base64toBlob(imgSrc);
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${formatDate(new Date())}.png`;
+      a.click();
+    }
     //save it to downloads
   }
   function userPromptRecord() {
@@ -421,4 +432,15 @@ function formatDate(d: Date) {
       d.getSeconds().toString().padStart(2, "0"),
     ].join("-");
   return formattedDate;
+}
+function base64toBlob(base64Data: any) {
+  const byteCharacters = atob(base64Data.split(",")[1]);
+  const arrayBuffer = new ArrayBuffer(byteCharacters.length);
+  const byteArray = new Uint8Array(arrayBuffer);
+
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteArray[i] = byteCharacters.charCodeAt(i);
+  }
+
+  return new Blob([arrayBuffer], { type: "image/png" }); // Specify the image type here
 }
