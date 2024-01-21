@@ -91,7 +91,7 @@ const HomePage = (props: Props) => {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [model, webcamRef.current, mirrored]);
+  }, [model, webcamRef.current, mirrored, autoRecordEnabled]);
 
   //loads model
   //set it in state variable
@@ -123,9 +123,9 @@ const HomePage = (props: Props) => {
           isPerson = prediction.class === "person";
         });
 
-        if (isPerson) {
-          // startRecording();//uncomment to record when person is visible
-          console.log("Person detected");
+        if (isPerson && autoRecordEnabled) {
+          //uncomment to record when person is visible
+          startRecording(true);
         }
       }
     }
@@ -259,13 +259,14 @@ const HomePage = (props: Props) => {
     } else {
       //if not recording
       //start recording
-      startRecording();
+      startRecording(false);
     }
   }
 
-  function startRecording() {
+  function startRecording(doBeep: boolean) {
     if (webcamRef.current && mediaRecorderRef.current?.state !== "recording") {
       mediaRecorderRef.current?.start();
+      doBeep && beep(volume);
 
       stopTimeout = setTimeout(() => {
         if (mediaRecorderRef.current?.state === "recording") {
@@ -356,7 +357,9 @@ const HomePage = (props: Props) => {
               onClick={toggleAutoRecord}
             >
               {autoRecordEnabled ? (
-                <PuffLoader color="white" size={30} />
+                <div className="flex justify-center items-center">
+                  <PuffLoader color="white" size={20} />
+                </div>
               ) : (
                 <PersonStanding size={14} />
               )}
