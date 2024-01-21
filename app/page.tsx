@@ -27,6 +27,7 @@ import "@tensorflow/tfjs-backend-cpu";
 import "@tensorflow/tfjs-backend-webgl";
 import { DetectedObject, ObjectDetection } from "@tensorflow-models/coco-ssd";
 import { drawOnCanvas } from "@/lib/draw";
+import SocialMediaLinks from "@/components/social-links";
 
 type Props = {};
 
@@ -392,7 +393,7 @@ const HomePage = (props: Props) => {
           <Separator />
           <li className="space-y-4">
             <strong>Share your thoughts 💬 </strong>
-            {/* <SocialMediaLinks/> */}
+            <SocialMediaLinks />
             <br />
             <br />
             <br />
