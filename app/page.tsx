@@ -5,11 +5,13 @@ import { Separator } from "@/components/ui/separator";
 import {
   Camera,
   FlipHorizontal,
+  MoonIcon,
   PersonStanding,
+  SunIcon,
   Video,
   Volume2,
 } from "lucide-react";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { toast } from "sonner";
 import { title } from "process";
@@ -21,16 +23,113 @@ import {
 } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { beep } from "@/lib/utils";
+import * as cocossd from "@tensorflow-models/coco-ssd";
+import "@tensorflow/tfjs-backend-cpu";
+import "@tensorflow/tfjs-backend-webgl";
+import { DetectedObject, ObjectDetection } from "@tensorflow-models/coco-ssd";
+import { drawOnCanvas } from "@/lib/draw";
 
 type Props = {};
+
+let interval: any = null;
+let stopTimeout: any = null;
 
 const HomePage = (props: Props) => {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [mirrored, setMirrored] = useState<boolean>(false);
+  const [mirrored, setMirrored] = useState<boolean>(true);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [autoRecordEnabled, setAutoRecordEnabled] = useState<boolean>(false);
   const [volume, setVolume] = useState(0.8);
+  const [model, setModel] = useState<ObjectDetection>();
+  const [loading, setLoading] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  //initialize the media recorder
+  useEffect(() => {
+    if (webcamRef && webcamRef.current) {
+      const stream = (webcamRef.current.video as any).captureStream();
+      if (stream) {
+        mediaRecorderRef.current = new MediaRecorder(stream);
+
+        mediaRecorderRef.current.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            const recordedBlob = new Blob([e.data], { type: "video" });
+            const videoURL = URL.createObjectURL(recordedBlob);
+
+            const a = document.createElement("a");
+            a.href = videoURL;
+            a.download = `${formatDate(new Date())}.webm`;
+            a.click();
+          }
+        };
+        mediaRecorderRef.current.onstart = (e) => {
+          setIsRecording(true);
+        };
+        mediaRecorderRef.current.onstop = (e) => {
+          setIsRecording(false);
+        };
+      }
+    }
+  }, [webcamRef]);
+
+  useEffect(() => {
+    setLoading(true);
+    initModel();
+  }, []);
+
+  useEffect(() => {
+    if (model) {
+      setLoading(false);
+    }
+  }, [model]);
+
+  useEffect(() => {
+    interval = setInterval(() => {
+      runPrediction();
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [model, webcamRef.current, mirrored]);
+
+  //loads model
+  //set it in state variable
+  async function initModel() {
+    const loadedModel: ObjectDetection = await cocossd.load({
+      base: "mobilenet_v2",
+    });
+    setModel(loadedModel);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  async function runPrediction() {
+    if (
+      model &&
+      webcamRef.current &&
+      webcamRef.current.video &&
+      webcamRef.current.video.readyState === 4
+    ) {
+      const predictions: DetectedObject[] = await model.detect(
+        webcamRef.current.video
+      );
+      // console.log(predictions);
+      resizeCanvas(canvasRef, webcamRef);
+      drawOnCanvas(mirrored, predictions, canvasRef.current?.getContext("2d"));
+
+      let isPerson: boolean = false;
+      if (predictions.length > 0) {
+        predictions.forEach((prediction) => {
+          isPerson = prediction.class === "person";
+        });
+
+        if (isPerson) {
+          // startRecording();//uncomment to record when person is visible
+          console.log("Person detected");
+        }
+      }
+    }
+  }
 
   return (
     <div className="flex h-screen">
@@ -124,7 +223,16 @@ const HomePage = (props: Props) => {
             </Popover>
           </div>
         </div>
+
+        <div className="h-full flex-1 py-4 px-2 overflow-y-scroll">
+          <RenderFeatureHighlightsSection />
+        </div>
       </div>
+      {loading && (
+        <div className="z-50 absolute w-full h-full flex items-center justify-center bg-primary-foreground">
+          Getting things ready . . . <PuffLoader size={30} color="red" />
+        </div>
+      )}
     </div>
   );
 
@@ -134,11 +242,38 @@ const HomePage = (props: Props) => {
     //save it to downloads
   }
   function userPromptRecord() {
-    //check if recording
-    //then stop recording
-    //and save to downloads
-    //if not recoring
-    //  start recording
+    if (!webcamRef.current) {
+      toast("Camera is not found. Please refresh");
+    }
+
+    if (mediaRecorderRef.current?.state == "recording") {
+      //check if recording
+      //then stop recording
+      //and save to downloads
+      //if not recoring
+      //  start recording
+      mediaRecorderRef.current.requestData();
+      clearTimeout(stopTimeout);
+      mediaRecorderRef.current.stop();
+      toast("Recording saved to downloads");
+    } else {
+      //if not recording
+      //start recording
+      startRecording();
+    }
+  }
+
+  function startRecording() {
+    if (webcamRef.current && mediaRecorderRef.current?.state !== "recording") {
+      mediaRecorderRef.current?.start();
+
+      stopTimeout = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === "recording") {
+          mediaRecorderRef.current.requestData();
+          mediaRecorderRef.current.stop();
+        }
+      }, 30000);
+    }
   }
   function toggleAutoRecord() {
     if (autoRecordEnabled) {
@@ -151,6 +286,136 @@ const HomePage = (props: Props) => {
       //show toast
     }
   }
+
+  //inner comps
+  function RenderFeatureHighlightsSection() {
+    return (
+      <div className="text-xs text-muted-foreground">
+        <ul className="space-y-4">
+          <li>
+            <strong>Dark Mode/Sys Theme 🌗</strong>
+            <p>Toggle between dark mode and system theme.</p>
+            <Button className="my-2 h-6 w-6" variant={"outline"} size={"icon"}>
+              <SunIcon size={14} />
+            </Button>{" "}
+            /{" "}
+            <Button className="my-2 h-6 w-6" variant={"outline"} size={"icon"}>
+              <MoonIcon size={14} />
+            </Button>
+          </li>
+          <li>
+            <strong>Horizontal Flip ↔️</strong>
+            <p>Adjust horizontal orientation.</p>
+            <Button
+              className="h-6 w-6 my-2"
+              variant={"outline"}
+              size={"icon"}
+              onClick={() => {
+                setMirrored((prev) => !prev);
+              }}
+            >
+              <FlipHorizontal size={14} />
+            </Button>
+          </li>
+          <Separator />
+          <li>
+            <strong>Take Pictures 📸</strong>
+            <p>Capture snapshots at any moment from the video feed.</p>
+            <Button
+              className="h-6 w-6 my-2"
+              variant={"outline"}
+              size={"icon"}
+              onClick={userPromptScreenshot}
+            >
+              <Camera size={14} />
+            </Button>
+          </li>
+          <li>
+            <strong>Manual Video Recording 📽️</strong>
+            <p>Manually record video clips as needed.</p>
+            <Button
+              className="h-6 w-6 my-2"
+              variant={isRecording ? "destructive" : "outline"}
+              size={"icon"}
+              onClick={userPromptRecord}
+            >
+              <Video size={14} />
+            </Button>
+          </li>
+          <Separator />
+          <li>
+            <strong>Enable/Disable Auto Record 🚫</strong>
+            <p>
+              Option to enable/disable automatic video recording whenever
+              required.
+            </p>
+            <Button
+              className="h-6 w-6 my-2"
+              variant={autoRecordEnabled ? "destructive" : "outline"}
+              size={"icon"}
+              onClick={toggleAutoRecord}
+            >
+              {autoRecordEnabled ? (
+                <PuffLoader color="white" size={30} />
+              ) : (
+                <PersonStanding size={14} />
+              )}
+            </Button>
+          </li>
+
+          <li>
+            <strong>Volume Slider 🔊</strong>
+            <p>Adjust the volume level of the notifications.</p>
+          </li>
+          <li>
+            <strong>Camera Feed Highlighting 🎨</strong>
+            <p>
+              Highlights persons in{" "}
+              <span style={{ color: "#FF0F0F" }}>red</span> and other objects in{" "}
+              <span style={{ color: "#00B612" }}>green</span>.
+            </p>
+          </li>
+          <Separator />
+          <li className="space-y-4">
+            <strong>Share your thoughts 💬 </strong>
+            {/* <SocialMediaLinks/> */}
+            <br />
+            <br />
+            <br />
+          </li>
+        </ul>
+      </div>
+    );
+  }
 };
 
 export default HomePage;
+function resizeCanvas(
+  canvasRef: React.RefObject<HTMLCanvasElement>,
+  webcamRef: React.RefObject<Webcam>
+) {
+  const canvas = canvasRef.current;
+  const video = webcamRef.current?.video;
+
+  if (canvas && video) {
+    const { videoWidth, videoHeight } = video;
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+  }
+}
+
+function formatDate(d: Date) {
+  const formattedDate =
+    [
+      (d.getMonth() + 1).toString().padStart(2, "0"),
+      d.getDate().toString().padStart(2, "0"),
+      d.getFullYear(),
+    ].join("-") +
+    " " +
+    [
+      d.getHours().toString().padStart(2, "0"),
+      d.getMinutes().toString().padStart(2, "0"),
+      d.getSeconds().toString().padStart(2, "0"),
+    ].join("-");
+  return formattedDate;
+}
